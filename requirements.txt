@@ -1,0 +1,6 @@
+# Core runtime deps
+pandas>=2.0
+matplotlib>=3.7
+
+# OTF2 Python bindings (installation may depend on your environment)
+otf2
