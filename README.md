@@ -1,1 +1,1 @@
-# otf2-visualizer
+# otf2-timeline-pdf
