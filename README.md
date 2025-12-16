@@ -30,6 +30,9 @@ interactive GUI viewers become impractical for long time ranges or many threads.
 - Scalable Rendering
   - Chunked drawing using PatchCollection for large traces
 
+Very short regions (< 1 ms by default) are filtered out to keep the visualization readable.
+This threshold can be adjusted with --min-duration-ms.
+
 ---
 
 ## Requirements
