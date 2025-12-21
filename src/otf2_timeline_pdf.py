@@ -223,11 +223,16 @@ def paginate_legend_regions(region_names: Sequence[str], opt: RenderOptions) -> 
 # OTF2 load / preprocess
 # ==================================================
 
-def load_otf2_intervals_rank_thread(trace_path: str) -> Tuple[pd.DataFrame, int]:
+def load_otf2_intervals_rank_thread(trace_path: str, skip_regex: str = "") -> Tuple[pd.DataFrame, int]:
     print("[INFO] Loading OTF2 trace (this may take a while)...")
 
     reader = Reader(trace_path)
     resolution = reader.timer_resolution
+
+    # Optional: skip regions matching regex (to reduce memory / speed up)
+    skip_pat = re.compile(skip_regex) if skip_regex else None
+    # lane -> depth counter for skipped regions (nest-safe)
+    skip_depth: Dict[str, int] = {}
 
     # (rank, loc_id) -> thread_index (0..)
     thread_index: Dict[Tuple[int, int], int] = {}
@@ -255,10 +260,34 @@ def load_otf2_intervals_rank_thread(trace_path: str) -> Tuple[pd.DataFrame, int]
         etype = type(ev).__name__
 
         if etype == "Enter":
+            # If we are already skipping in this lane, keep stack consistent and move on.
+            if skip_pat and skip_depth.get(lane, 0) > 0:
+                enter_stack[lane].append((ev, len(enter_stack[lane])))
+                continue
+
+            rname = ev.region.name
+
+            # Start skipping for selected regions.
+            if skip_pat and skip_pat.match(rname):
+                skip_depth[lane] = skip_depth.get(lane, 0) + 1
+                # Still push to keep Enter/Leave pairing consistent.
+                enter_stack[lane].append((ev, len(enter_stack[lane])))
+                continue
+
+            # Normal enter
             enter_stack[lane].append((ev, len(enter_stack[lane])))
 
         elif etype == "Leave" and enter_stack[lane]:
             en, depth = enter_stack[lane].pop()
+
+            # If we are skipping, drop this interval and only manage skip depth.
+            if skip_pat and skip_depth.get(lane, 0) > 0:
+                if skip_pat.match(en.region.name):
+                    skip_depth[lane] -= 1
+                    if skip_depth[lane] <= 0:
+                        del skip_depth[lane]
+                continue
+
             rows.append(dict(
                 lane=lane,
                 rank=rank_id,
@@ -597,6 +626,12 @@ def build_argparser() -> argparse.ArgumentParser:
     p.add_argument("--legend-wrap-width", type=int, default=120, help="Wrap width for legend region names")
     p.add_argument("--legend-line-space", type=float, default=0.020, help="Legend line spacing in axes fraction")
 
+    p.add_argument(
+        "--skip-regex",
+        default=r"^(MPI_(Iprobe|Test|Testall))$",
+        help="Skip regions matching this regex (default: MPI_Iprobe/Test/Testall). Set empty to disable.",
+    )
+
     return p
 
 
@@ -616,7 +651,7 @@ def main() -> None:
         legend_line_space=args.legend_line_space,
     )
 
-    df_raw, resolution = load_otf2_intervals_rank_thread(args.trace)
+    df_raw, resolution = load_otf2_intervals_rank_thread(args.trace, skip_regex=args.skip_regex)
     df = preprocess_intervals(df_raw, resolution, opt)
 
     if df.empty:
@@ -653,6 +688,7 @@ def main() -> None:
     print(f"Global time range: {t_global_min:.6g} – {t_global_max:.6g} [sec]")
     print(f"Focus lane: {focus_lane} (max depth global: {focus_max_depth_global})")
     print(f"Top view max rows: {opt.max_lane_rows}")
+    print(f"Skip regex: {args.skip_regex!r}")
     if args.ranges is None:
         if args.auto_split == 1:
             print("Default ranges: overview only (auto-split=1)")
@@ -691,3 +727,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
