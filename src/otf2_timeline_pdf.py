@@ -503,7 +503,13 @@ def render_timeline_page(
 
         func = core_label_from_region(r.region)
         dur = r.duration_s
-        dstr = f"{dur:.2f}s" if dur >= 1 else f"{dur * 1000:.1f}ms"
+        # Format duration with appropriate unit and precision
+        if dur >= 1:
+            dstr = f"{dur:.2f}s"
+        elif dur >= 0.001:  # 1ms or more
+            dstr = f"{dur * 1000:.2f}ms"
+        else:  # Less than 1ms
+            dstr = f"{dur * 1_000_000:.2f}μs"
         label = f"{func} ({dstr})"
 
         x0_px = ax_depth.transData.transform((vs, 0))[0]
